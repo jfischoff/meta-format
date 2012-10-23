@@ -19,10 +19,12 @@ import qualified Data.Aeson.Types as Data.Aeson.Types
 import Data.Aeson.QQ
 import qualified Codec.Archive.Tar.Entry as Tar
 import qualified Data.HashMap.Strict as H
-import qualified Data.Text as Data.Text
-import qualified Data.Attoparsec.Number as Data.Attoparsec.Number 
+import Data.Text
+import Data.Attoparsec.Number 
 import qualified Data.Vector as Data.Vector
 import qualified Data.ByteString.Lazy as BL
+import Control.Monad
+import Control.Applicative
 
 deriving instance Eq Tar.Entry
 
@@ -59,8 +61,7 @@ main = defaultMain [
                 --TEST_CASE(test_contextToTar                       )
             ],
             testGroup "props" [
-                TEST_PROP(prop_valueToJsonFromJson ),
-                TEST_PROP(prop_valueFromJSONToValue)
+                TEST_PROP(prop_valueToJsonFromJson )
             ]
         ]
 
@@ -81,6 +82,15 @@ runParserObject :: Object -> (Object -> A.Parser a) -> a
 runParserObject initial p = case A.parse p initial of
                                 A.Success x -> x
                                 A.Error msg -> error msg
+                                
+instance Arbitrary Text where
+    arbitrary = pack <$> arbitrary
+    
+instance Arbitrary Number where
+    arbitrary = oneof [
+            D <$> arbitrary,
+            I <$> arbitrary
+        ]    
         
 instance Arbitrary A.Value where
     arbitrary = sized arb where
@@ -89,22 +99,46 @@ instance Arbitrary A.Value where
             0 -> arbBase
             n -> do
                 listSize <- choose(0, n)
-                arbBase <|> oneof [
-                    fmap (Object . H.fromList)          $
-                        vectorOf listSize (arbitrary >*< arb (n `div` listSize))
-                    fmap (Array . Data.Vector.fromList) $
-                        vectorOf listSize =<< (arb (n `div` listSize)),
-                ] 
+                oneof [
+                    arbBase, oneof [
+                        fmap (A.Object . H.fromList)          $
+                            vectorOf listSize (arbitrary >*< arb (n `div` listSize)),
+                        fmap (A.Array . Data.Vector.fromList) $
+                            vectorOf listSize (arb (n `div` listSize))
+                        ]
+                    ] 
                 
-        arbBase = oneOf [
-                    Bool   <$> arbitrary,
-                    Number <$> arbitrary,
-                    String <$> arbitrary,
-                    return Null
+        arbBase = oneof [
+                    A.Bool   <$> arbitrary,
+                    A.Number <$> arbitrary,
+                    A.String <$> arbitrary,
+                    return A.Null
             ]
         
 instance Arbitrary Value where
-    arbitrary = error "Value arbitrary"
+    arbitrary = sized arb where
+        
+        arb i = case i of
+            0 -> arbBase
+            n -> do
+                listSize <- choose(0, n)
+                oneof [
+                    arbBase, oneof [
+                        fmap (Object . H.fromList)          $
+                            vectorOf listSize (arbitrary >*< arb (n `div` listSize)),
+                        fmap (Array . Data.Vector.fromList) $
+                            vectorOf listSize (arb (n `div` listSize))
+                        ]
+                    ] 
+                
+        arbBase = oneof [
+                    Bool   <$> arbitrary,
+                    Number <$> arbitrary,
+                    String <$> arbitrary,
+                    InternalReference <$> arbitrary,
+                    liftM2 ExternalReference arbitrary arbitrary, 
+                    return Null
+            ]
         
 test_getValue = actual @?= expected where
     actual        = runParserObject initialObject (flip getValue key)
@@ -262,10 +296,8 @@ test_contextToTar = do
 -}
 
 prop_valueToJsonFromJson :: Value -> Bool
-prop_valueToJsonFromJson  = undefined
+prop_valueToJsonFromJson x = (A.fromJSON $ A.toJSON x) == A.Success x
 
-prop_valueFromJSONToValue :: A.Value -> Bool
-prop_valueFromJSONToValue = undefined     
 
 
    
