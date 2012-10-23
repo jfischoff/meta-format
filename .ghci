@@ -1,0 +1,3 @@
+:set -i./src -i./tests
+:set -pgmPcpphs -optP--cpp
+:l tests/Main.hs
