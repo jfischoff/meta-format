@@ -12,4 +12,8 @@ data Material = Material {
         _uniforms       :: [Uniform]
 }
 
-    
+-- TODO make a ToContext/FromContext instance.
+-- Make some short of stateful resource loading that keeps track of 
+-- binary files and doesn't load them twice
+-- Show an example of loading materials and verifying that the
+-- there are the write images and uniforms
